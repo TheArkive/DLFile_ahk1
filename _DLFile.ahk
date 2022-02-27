@@ -23,8 +23,9 @@
 ; If someone wants to school me, please do :-)
 ; ===================================================================================
 
-url:="https://dl.google.com/android/repository/commandlinetools-win-8092744_latest.zip"
-dest := A_Desktop "\commandlinetools-win-8092744_latest.zip"
+url:=["https://dl.google.com/android/repository/commandlinetools-win-8092744_latest.zip"
+     ,"https://dl.google.com/android/repository/commandlinetools-win-7583922_latest.zip"]
+dest := A_Desktop ; on batch, dest must be folder, otherwise, on single file/url input dest should be the file to create.
 
 
 DL := new DLFile(url,dest,"callback")
@@ -52,7 +53,10 @@ ESC::ExitApp
 ;
 ;   Params:
 ;
-;   - url / dest = self explanitory
+;   - url = a single url string, or an array of URLs
+;
+;   - dest = When url is a single url, this must be a filename (full path) to create.
+;            When url is an array of URLs, then this must be a folder name.
 ;
 ;   - callback = a func object
 ;
@@ -121,7 +125,28 @@ class DLFile {
     }
     
     Start() {
-        cb := this.cb, temp_file := this.dest ".temp", this.bytes := 0, this.lastBytes := 0
+        If !this.url.Length() {
+            this._SplitUrl(this.url,&protocol,&server,&port,&_dir_file,&_file)
+            this.dir_file := _dir_file, this.file := _file, this.server := server, this.port := port
+            this.StartDL()
+        } Else {
+            If !(InStr(FileExist(this.dest),"D")) {
+                MsgBox "Destination must be a directory when processing a batch."
+                return
+            }
+            While this.url.Length() {
+                this._SplitUrl(this.url[1],protocol,server,port,_dir_file,_file)
+                this.dir_file := _dir_file, this.file := _file, this.server := server, this.port := port
+                this.StartDL()
+            }
+        }
+    }
+    
+    StartDL() {
+        cb := this.cb
+        temp_file := (this.url.Length()) ? (this.dest "\" this.file ".temp") : (this.dest ".temp")
+        dest_file := (this.url.Length()) ? (this.dest "\" this.file) : (this.dest)
+        this.bytes := 0, this.lastBytes := 0
         this.hSession := this.Open()
         this.hConnect := this.Connect(this.hSession, this.server, this.port)
         
@@ -164,10 +189,13 @@ class DLFile {
         
         file_buf.Close()
         If !this.cancel             ; remove ".temp" on complete
-            FileMove, % temp_file, % this.dest
+            FileMove, % temp_file, % dest_file
         Else If this.del_on_cancel  ; delete partial download if enabled
             FileDelete, % temp_file
         this.Abort()                ; cleanup handles
+        
+        If this.url.Length()
+            this.url.RemoveAt(1)
     }
     
     SetTimer(fnc,time) {
@@ -186,13 +214,13 @@ class DLFile {
         }
     }
     
-    CheckPartial(bytes:=false) {
-        length := this.CheckLength(true), result := 0
-        If FileExist(this.dest ".temp") {
-            f := FileOpen(this.dest ".temp","r"), size := f.Length, f.Close()
-            result := bytes ? size : Round(size/length)
-        } return result
-    }
+    ; CheckPartial(bytes:=false) {
+        ; length := this.CheckLength(true), result := 0
+        ; If FileExist(this.dest ".temp") {
+            ; f := FileOpen(this.dest ".temp","r"), size := f.Length, f.Close()
+            ; result := bytes ? size : Round(size/length)
+        ; } return result
+    ; }
     
     CheckLength(abort:=true) {
         this.hSession := this.Open()
