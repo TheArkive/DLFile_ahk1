@@ -118,13 +118,13 @@ class DLFile {
     
     __New(url, dest, cb:="", del_on_cancel:=false) {
         this.url := url, this.dest := dest, this.del_on_cancel := del_on_cancel
-        this._SplitUrl(this.url,protocol,server,port,_dir_file,_file) ; last 5 params ByRef
-        this.dir_file := _dir_file, this.file := _file, this.server := server, this.port := port
         this.timer := ObjBindMethod(this,"_timer")
         this.cb := (IsFunc(cb) ? Func(cb) : "")
     }
     
     Start() {
+        this.cancel := this.resume := 0
+        
         If !this.url.Length() {
             this._SplitUrl(this.url,&protocol,&server,&port,&_dir_file,&_file)
             this.dir_file := _dir_file, this.file := _file, this.server := server, this.port := port
@@ -134,9 +134,10 @@ class DLFile {
                 MsgBox "Destination must be a directory when processing a batch."
                 return
             }
-            While this.url.Length() {
+            While this.url.Length() && !this.cancel {
                 this._SplitUrl(this.url[1],protocol,server,port,_dir_file,_file)
                 this.dir_file := _dir_file, this.file := _file, this.server := server, this.port := port
+                this.size := this.perc := this.bytes := this.lastBytes := this.bps := this.cancel := this.resume := 0
                 this.StartDL()
             }
         }
@@ -146,7 +147,6 @@ class DLFile {
         cb := this.cb
         temp_file := (this.url.Length()) ? (this.dest "\" this.file ".temp") : (this.dest ".temp")
         dest_file := (this.url.Length()) ? (this.dest "\" this.file) : (this.dest)
-        this.bytes := 0, this.lastBytes := 0
         this.hSession := this.Open()
         this.hConnect := this.Connect(this.hSession, this.server, this.port)
         
@@ -160,7 +160,7 @@ class DLFile {
             
             If (rsp = 206 || rsp = 200) { ; if request is valid, set size and bytes already downloaded
                 this.size := RegExReplace(headers["content-range"],"bytes \d+\-\d+/(\d+)","$1")
-                this.bytes := file_buf.Length, this.lastBytes := file_buf.Length, this.resume := true
+                this.bytes := this.lastBytes := file_buf.Length, this.resume := true
             } Else this.CloseHandle(this.hRequest) ; abort hRequest and recreate below
         }
         
@@ -173,7 +173,7 @@ class DLFile {
             this.size := headers["content-length"]
         }
         
-        this.bps_arr := [], cb := this.cb
+        this.bps_arr := []
         this.SetTimer(this.timer,250)
         
         While(d_size := this.QueryDataSize(this.hRequest)) {
@@ -184,8 +184,12 @@ class DLFile {
         }
         this.SetTimer(this.timer,0)
         
-        If IsFunc(cb) && !this.cancel ; ensure finished stats on completion
-            this.bytes:=this.size, this.bps:=0, this.perc:=100, %cb%(this)
+        If !this.cancel { ; ensure finished stats on completion
+            this.bytes:=this.size, this.bps:=0, this.perc:=100
+            (this.url.Length()) ? this.url.RemoveAt(1) : ""
+        }
+        If IsFunc(cb)
+            %cb%(this)
         
         file_buf.Close()
         If !this.cancel             ; remove ".temp" on complete
@@ -193,9 +197,6 @@ class DLFile {
         Else If this.del_on_cancel  ; delete partial download if enabled
             FileDelete, % temp_file
         this.Abort()                ; cleanup handles
-        
-        If this.url.Length()
-            this.url.RemoveAt(1)
     }
     
     SetTimer(fnc,time) {
@@ -367,7 +368,6 @@ class DLFile {
         If this.hSession && !(this.CloseHandle(this.hSession))
             throw Exception("Unable to close session handle.",-1)
         this.hRequest := this.hConnect := this.hSession := 0
-        this.size := this.perc := this.bytes := this.bps := this.cancel := this.resume := 0
     }
 }
 
